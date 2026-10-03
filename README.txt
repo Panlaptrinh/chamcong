@@ -34,3 +34,4 @@ Không có máy chủ, không đồng bộ tự động giữa các thiết bị
 - VS tạp vụ: 7%
 - Không có epoxy
 - Tổng lương = lương ngày công + phụ cấp ngày công + tiền 10% + tiền 7%.
+GitHub Pages deployment
