@@ -42,6 +42,10 @@
   --info-bg: #f0f9ff;
   --info-text: #0369a1;
 
+  --purple: #a855f7;
+  --purple-bg: #f3e8ff;
+  --purple-text: #7e22ce;
+
   --topbar-bg: #0f172a;
   --topbar-text: #ffffff;
   
@@ -100,6 +104,10 @@
   --info: #38bdf8;
   --info-bg: rgba(56, 189, 248, 0.12);
   --info-text: #7dd3fc;
+
+  --purple: #c084fc;
+  --purple-bg: rgba(192, 132, 252, 0.15);
+  --purple-text: #e9d5ff;
 
   --topbar-bg: #0d1322;
   --topbar-text: #ffffff;
@@ -666,6 +674,7 @@ input:focus, select:focus, textarea:focus {
 .segment-allowance { background: var(--info); }
 .segment-cn { background: var(--warning); }
 .segment-tv { background: var(--success); }
+.segment-ron { background: var(--purple); }
 
 .breakdown-legend {
   display: flex;
@@ -878,6 +887,11 @@ tbody td {
 .badge-info {
   background: var(--info-bg);
   color: var(--info-text);
+}
+
+.badge-purple {
+  background: var(--purple-bg);
+  color: var(--purple-text);
 }
 
 /* Table Action Buttons */

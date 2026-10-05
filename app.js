@@ -11,7 +11,8 @@ const defaults = {
     standardDays: 26,
     allowance: 1000000,
     cnRate: 10,
-    tvRate: 7
+    tvRate: 7,
+    ronRate: 10
   },
   employees: [
     { id: crypto.randomUUID(), name: "Hậu", active: true }
@@ -71,17 +72,43 @@ function employeeName(id) {
   return data.employees.find(e => e.id === id)?.name || "—";
 }
 
+function getEmpRates(empId) {
+  const emp = data.employees.find(e => e.id === empId);
+  const cnRate = (emp && emp.cnRate !== undefined && emp.cnRate !== null && emp.cnRate !== "") 
+    ? +emp.cnRate 
+    : (data.settings.cnRate ?? 10);
+  const tvRate = (emp && emp.tvRate !== undefined && emp.tvRate !== null && emp.tvRate !== "") 
+    ? +emp.tvRate 
+    : (data.settings.tvRate ?? 7);
+  const ronRate = (emp && emp.ronRate !== undefined && emp.ronRate !== null && emp.ronRate !== "") 
+    ? +emp.ronRate 
+    : (data.settings.ronRate ?? 10);
+  return { cnRate, tvRate, ronRate };
+}
+
 // --- Calculation Logic ---
 function calc(a) {
   const cnVal = +a.cn || 0;
   const tvVal = +a.tv || 0;
-  const cnRate = data.settings.cnRate || 10;
-  const tvRate = data.settings.tvRate || 7;
+  const ronVal = +a.ron || 0;
+  const rates = getEmpRates(a.employeeId);
+
+  const cnPct = (cnVal * rates.cnRate) / 100;
+  const tvPct = (tvVal * rates.tvRate) / 100;
+  const ronPct = (ronVal * rates.ronRate) / 100;
 
   return {
     ...a,
-    cnPct: (cnVal * cnRate) / 100,
-    tvPct: (tvVal * tvRate) / 100
+    cn: cnVal,
+    tv: tvVal,
+    ron: ronVal,
+    cnRate: rates.cnRate,
+    tvRate: rates.tvRate,
+    ronRate: rates.ronRate,
+    cnPct,
+    tvPct,
+    ronPct,
+    totalPct: cnPct + tvPct + ronPct
   };
 }
 
@@ -105,8 +132,10 @@ function salary(month, emp = "") {
   const days = r.filter(x => x.work).length;
   const cn = r.reduce((s, x) => s + (+x.cn || 0), 0);
   const tv = r.reduce((s, x) => s + (+x.tv || 0), 0);
-  const p10 = r.reduce((s, x) => s + x.cnPct, 0);
-  const p7 = r.reduce((s, x) => s + x.tvPct, 0);
+  const ron = r.reduce((s, x) => s + (+x.ron || 0), 0);
+  const pCN = r.reduce((s, x) => s + x.cnPct, 0);
+  const pTV = r.reduce((s, x) => s + x.tvPct, 0);
+  const pRon = r.reduce((s, x) => s + x.ronPct, 0);
   
   const stdDays = data.settings.standardDays || 26;
   const db = (data.settings.baseSalary || 0) / stdDays;
@@ -114,10 +143,10 @@ function salary(month, emp = "") {
   
   const base = days * db;
   const allowance = days * da;
-  const pct = p10 + p7;
+  const pct = pCN + pTV + pRon;
   const total = base + allowance + pct;
 
-  return { r, days, cn, tv, p10, p7, pct, base, allowance, total };
+  return { r, days, cn, tv, ron, pCN, pTV, pRon, pct, base, allowance, total };
 }
 
 // --- Theme Management ---
@@ -169,11 +198,13 @@ function renderAll() {
   if ($("#statDays")) $("#statDays").textContent = s.days;
   if ($("#statCN")) $("#statCN").textContent = money(s.cn);
   if ($("#statTV")) $("#statTV").textContent = money(s.tv);
+  if ($("#statRon")) $("#statRon").textContent = money(s.ron);
   if ($("#statPct")) $("#statPct").textContent = money(s.pct);
   if ($("#statSalary")) $("#statSalary").textContent = money(s.total);
 
   if ($("#cnRateBadge")) $("#cnRateBadge").textContent = (data.settings.cnRate || 10) + "%";
   if ($("#tvRateBadge")) $("#tvRateBadge").textContent = (data.settings.tvRate || 7) + "%";
+  if ($("#ronRateBadge")) $("#ronRateBadge").textContent = (data.settings.ronRate || 10) + "%";
 
   renderEarningsBreakdown(s);
   renderOptions();
@@ -187,18 +218,21 @@ function renderEarningsBreakdown(s) {
   const total = s.total || 1;
   const basePct = Math.max(0, Math.min(100, (s.base / total) * 100));
   const allowPct = Math.max(0, Math.min(100, (s.allowance / total) * 100));
-  const cnPct = Math.max(0, Math.min(100, (s.p10 / total) * 100));
-  const tvPct = Math.max(0, Math.min(100, (s.p7 / total) * 100));
+  const cnPct = Math.max(0, Math.min(100, (s.pCN / total) * 100));
+  const tvPct = Math.max(0, Math.min(100, (s.pTV / total) * 100));
+  const ronPct = Math.max(0, Math.min(100, (s.pRon / total) * 100));
 
   if ($("#barBase")) $("#barBase").style.width = basePct + "%";
   if ($("#barAllowance")) $("#barAllowance").style.width = allowPct + "%";
   if ($("#barCN")) $("#barCN").style.width = cnPct + "%";
   if ($("#barTV")) $("#barTV").style.width = tvPct + "%";
+  if ($("#barRon")) $("#barRon").style.width = ronPct + "%";
 
   if ($("#legBase")) $("#legBase").textContent = money(s.base);
   if ($("#legAllowance")) $("#legAllowance").textContent = money(s.allowance);
-  if ($("#legCN")) $("#legCN").textContent = money(s.p10);
-  if ($("#legTV")) $("#legTV").textContent = money(s.p7);
+  if ($("#legCN")) $("#legCN").textContent = money(s.pCN);
+  if ($("#legTV")) $("#legTV").textContent = money(s.pTV);
+  if ($("#legRon")) $("#legRon").textContent = money(s.pRon);
 }
 
 function renderOptions() {
@@ -237,7 +271,7 @@ function renderAttendance() {
   if (r.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" class="empty-state">
+        <td colspan="12" class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
           <div>Chưa có dữ liệu chấm công cho tháng này.</div>
           <button class="primary" style="margin-top:12px;" onclick="editAttendance()">＋ Thêm lượt chấm công</button>
@@ -263,9 +297,11 @@ function renderAttendance() {
         </td>
         <td>${money(a.cn)}</td>
         <td>${money(a.tv)}</td>
-        <td><span class="badge badge-warning">+${money(a.cnPct)}</span></td>
-        <td><span class="badge badge-success">+${money(a.tvPct)}</span></td>
-        <td><strong style="color:var(--primary);">${money(a.cnPct + a.tvPct)}</strong></td>
+        <td>${money(a.ron)}</td>
+        <td><span class="badge badge-warning" title="Tỷ lệ % CN: ${a.cnRate}%">+${money(a.cnPct)}</span></td>
+        <td><span class="badge badge-success" title="Tỷ lệ % TV: ${a.tvRate}%">+${money(a.tvPct)}</span></td>
+        <td><span class="badge badge-purple" title="Tỷ lệ % Ron: ${a.ronRate}%">+${money(a.ronPct)}</span></td>
+        <td><strong style="color:var(--primary);">${money(a.totalPct)}</strong></td>
         <td style="text-align:right;">
           <div class="action-btns" style="justify-content:flex-end;">
             <button class="table-icon-btn" onclick="editAttendance('${a.id}')" title="Sửa">
@@ -293,12 +329,14 @@ function renderPayroll() {
       ["Phụ cấp ngày công", money(s.allowance)],
       ["Doanh thu VS CN", money(s.cn)],
       ["Doanh thu VS TV", money(s.tv)],
-      [`Tiền % VS CN (${data.settings.cnRate}%)`, money(s.p10)],
-      [`Tiền % VS TV (${data.settings.tvRate}%)`, money(s.p7)],
+      ["Doanh thu Ron Keo", money(s.ron)],
+      [`Tiền % VS CN`, money(s.pCN)],
+      [`Tiền % VS TV`, money(s.pTV)],
+      [`Tiền % Ron Keo`, money(s.pRon)],
       ["Tổng hoa hồng %", money(s.pct)],
       ["TỔNG LƯƠNG NHẬN", money(s.total)]
     ].map((x, i) => `
-      <div class="pay-card ${i === 8 ? "total" : ""}">
+      <div class="pay-card ${i === 10 ? "total" : ""}">
         <span>${x[0]}</span>
         <strong>${x[1]}</strong>
       </div>
@@ -309,7 +347,7 @@ function renderPayroll() {
   if (!tbody) return;
 
   if (s.r.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Chưa có chi tiết ngày công nào trong tháng này.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Chưa có chi tiết ngày công nào trong tháng này.</td></tr>`;
     return;
   }
 
@@ -323,7 +361,8 @@ function renderPayroll() {
       </td>
       <td>${money(a.cn)}</td>
       <td>${money(a.tv)}</td>
-      <td><strong>${money(a.cnPct + a.tvPct)}</strong></td>
+      <td>${money(a.ron)}</td>
+      <td><strong>${money(a.totalPct)}</strong></td>
     </tr>
   `).join("");
 }
@@ -338,8 +377,11 @@ function renderEmployees() {
   }
 
   list.innerHTML = data.employees.map(e => {
-    // Count days worked by this employee total
     const totalDaysWorked = data.attendance.filter(a => a.employeeId === e.id && a.work).length;
+    const rates = getEmpRates(e.id);
+    const hasCustom = (e.cnRate !== null && e.cnRate !== undefined && e.cnRate !== "") ||
+                      (e.tvRate !== null && e.tvRate !== undefined && e.tvRate !== "") ||
+                      (e.ronRate !== null && e.ronRate !== undefined && e.ronRate !== "");
 
     return `
       <div class="employee-card">
@@ -347,11 +389,19 @@ function renderEmployees() {
           <div class="employee-avatar">${getInitials(e.name)}</div>
           <div>
             <div class="employee-name">${esc(e.name)}</div>
-            <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">
+            <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               ${e.active 
                 ? `<span class="badge badge-success">Đang làm</span>` 
                 : `<span class="badge badge-muted">Đã nghỉ</span>`}
               <span class="badge badge-info">${totalDaysWorked} ngày công</span>
+              ${hasCustom 
+                ? `<span class="badge badge-warning">Setup % riêng</span>` 
+                : `<span class="badge badge-muted">% Mặc định</span>`}
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap;">
+              <span>CN: <strong style="color:var(--text-main);">${rates.cnRate}%</strong></span>
+              <span>TV: <strong style="color:var(--text-main);">${rates.tvRate}%</strong></span>
+              <span>Ron: <strong style="color:var(--text-main);">${rates.ronRate}%</strong></span>
             </div>
           </div>
         </div>
@@ -375,6 +425,7 @@ function renderSettings() {
   if ($("#allowance")) $("#allowance").value = s.allowance;
   if ($("#cnRate")) $("#cnRate").value = s.cnRate;
   if ($("#tvRate")) $("#tvRate").value = s.tvRate;
+  if ($("#ronRate")) $("#ronRate").value = s.ronRate ?? 10;
 }
 
 // --- Modals & Forms ---
@@ -395,11 +446,9 @@ function attendanceForm(id = "") {
     employeeId: data.employees[0]?.id || "",
     work: true,
     cn: 0,
-    tv: 0
+    tv: 0,
+    ron: 0
   };
-
-  const cnRate = data.settings.cnRate || 10;
-  const tvRate = data.settings.tvRate || 7;
 
   openModal(
     id ? "Sửa lượt chấm công" : "Thêm lượt chấm công",
@@ -436,15 +485,24 @@ function attendanceForm(id = "") {
         <input id="fTV" type="number" min="0" step="1000" value="${a.tv || 0}" placeholder="0">
       </div>
 
+      <div class="form-group">
+        <label for="fRon">Doanh thu Ron keo (VNĐ)</label>
+        <input id="fRon" type="number" min="0" step="1000" value="${a.ron || 0}" placeholder="0">
+      </div>
+
       <!-- Real-time Live Calculation Box -->
       <div class="preview-box">
         <div>
-          <label>Tiền % VS CN (${cnRate}%):</label>
+          <label id="lblCNP">Tiền % VS CN:</label>
           <strong id="prevCNP">0 ₫</strong>
         </div>
         <div>
-          <label>Tiền % VS TV (${tvRate}%):</label>
+          <label id="lblTVP">Tiền % VS TV:</label>
           <strong id="prevTVP">0 ₫</strong>
+        </div>
+        <div>
+          <label id="lblRonP">Tiền % Ron keo:</label>
+          <strong id="prevRonP">0 ₫</strong>
         </div>
         <div style="grid-column: 1 / -1; border-top:1px solid var(--border-color); padding-top:6px;">
           <label>Tổng hoa hồng % trong ngày:</label>
@@ -460,17 +518,31 @@ function attendanceForm(id = "") {
   );
 
   const updatePreview = () => {
+    const empId = $("#fEmp")?.value || "";
+    const rates = getEmpRates(empId);
+
+    if ($("#lblCNP")) $("#lblCNP").textContent = `Tiền % VS CN (${rates.cnRate}%):`;
+    if ($("#lblTVP")) $("#lblTVP").textContent = `Tiền % VS TV (${rates.tvRate}%):`;
+    if ($("#lblRonP")) $("#lblRonP").textContent = `Tiền % Ron keo (${rates.ronRate}%):`;
+
     const cnVal = +$("#fCN").value || 0;
     const tvVal = +$("#fTV").value || 0;
-    const cnP = (cnVal * cnRate) / 100;
-    const tvP = (tvVal * tvRate) / 100;
+    const ronVal = +$("#fRon").value || 0;
+
+    const cnP = (cnVal * rates.cnRate) / 100;
+    const tvP = (tvVal * rates.tvRate) / 100;
+    const ronP = (ronVal * rates.ronRate) / 100;
+
     if ($("#prevCNP")) $("#prevCNP").textContent = money(cnP);
     if ($("#prevTVP")) $("#prevTVP").textContent = money(tvP);
-    if ($("#prevTotalP")) $("#prevTotalP").textContent = money(cnP + tvP);
+    if ($("#prevRonP")) $("#prevRonP").textContent = money(ronP);
+    if ($("#prevTotalP")) $("#prevTotalP").textContent = money(cnP + tvP + ronP);
   };
 
+  $("#fEmp").onchange = updatePreview;
   $("#fCN").oninput = updatePreview;
   $("#fTV").oninput = updatePreview;
+  $("#fRon").oninput = updatePreview;
   updatePreview();
 
   $("#attForm").onsubmit = e => {
@@ -481,7 +553,8 @@ function attendanceForm(id = "") {
       employeeId: $("#fEmp").value,
       work: $("#fWork").checked,
       cn: +$("#fCN").value || 0,
-      tv: +$("#fTV").value || 0
+      tv: +$("#fTV").value || 0,
+      ron: +$("#fRon").value || 0
     };
 
     if (id) {
@@ -539,6 +612,11 @@ function batchAttendanceForm() {
         <input id="bTV" type="number" min="0" step="1000" value="0" placeholder="0">
       </div>
 
+      <div class="form-group">
+        <label for="bRon">Doanh thu Ron keo mặc định cho mỗi người (VNĐ)</label>
+        <input id="bRon" type="number" min="0" step="1000" value="0" placeholder="0">
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="secondary" onclick="closeModal()">Hủy</button>
         <button class="primary" type="submit">Xác nhận chấm công</button>
@@ -552,6 +630,7 @@ function batchAttendanceForm() {
     const selectedEmpIds = $$(".batch-emp-cb:checked").map(cb => cb.value);
     const cnVal = +$("#bCN").value || 0;
     const tvVal = +$("#bTV").value || 0;
+    const ronVal = +$("#bRon").value || 0;
 
     if (selectedEmpIds.length === 0) {
       toast("Vui lòng chọn ít nhất 1 nhân viên.");
@@ -560,7 +639,6 @@ function batchAttendanceForm() {
 
     let addedCount = 0;
     selectedEmpIds.forEach(empId => {
-      // Check if entry already exists for this date and employee
       const existingIdx = data.attendance.findIndex(x => x.date === dateVal && x.employeeId === empId);
       const record = {
         id: existingIdx !== -1 ? data.attendance[existingIdx].id : crypto.randomUUID(),
@@ -568,7 +646,8 @@ function batchAttendanceForm() {
         employeeId: empId,
         work: true,
         cn: cnVal,
-        tv: tvVal
+        tv: tvVal,
+        ron: ronVal
       };
 
       if (existingIdx !== -1) {
@@ -609,7 +688,13 @@ window.deleteAttendance = id => {
 
 // Employee Form Modal
 function employeeForm(id = "") {
-  const emp = data.employees.find(x => x.id === id) || { name: "", active: true };
+  const emp = data.employees.find(x => x.id === id) || { 
+    name: "", active: true, cnRate: null, tvRate: null, ronRate: null 
+  };
+
+  const globalCN = data.settings.cnRate || 10;
+  const globalTV = data.settings.tvRate || 7;
+  const globalRon = data.settings.ronRate || 10;
 
   openModal(
     id ? "Sửa thông tin nhân viên" : "Thêm nhân viên mới",
@@ -629,6 +714,24 @@ function employeeForm(id = "") {
         <span style="font-weight:600;font-size:14px;">Đang làm việc</span>
       </div>
 
+      <div style="border-top:1px solid var(--border-color);padding-top:12px;margin-top:4px;">
+        <div style="font-weight:700;font-size:14px;color:var(--text-main);margin-bottom:10px;">Cấu hình % hoa hồng riêng (để trống nếu dùng mặc định)</div>
+        <div class="form-grid form-grid-2col">
+          <div class="form-group">
+            <label for="eCN">Tỷ lệ % VS Công nghiệp</label>
+            <input id="eCN" type="number" min="0" max="100" step="0.1" value="${emp.cnRate != null ? emp.cnRate : ""}" placeholder="Mặc định: ${globalCN}%">
+          </div>
+          <div class="form-group">
+            <label for="eTV">Tỷ lệ % VS Tạp vụ</label>
+            <input id="eTV" type="number" min="0" max="100" step="0.1" value="${emp.tvRate != null ? emp.tvRate : ""}" placeholder="Mặc định: ${globalTV}%">
+          </div>
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label for="eRon">Tỷ lệ % Ron keo</label>
+            <input id="eRon" type="number" min="0" max="100" step="0.1" value="${emp.ronRate != null ? emp.ronRate : ""}" placeholder="Mặc định: ${globalRon}%">
+          </div>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="secondary" onclick="closeModal()">Hủy</button>
         <button class="primary" type="submit">Lưu thông tin</button>
@@ -641,10 +744,15 @@ function employeeForm(id = "") {
     const nameVal = $("#eName").value.trim();
     if (!nameVal) return;
 
+    const parseRate = val => (val.trim() === "" || isNaN(val)) ? null : +val;
+
     const o = {
       id: id || crypto.randomUUID(),
       name: nameVal,
-      active: $("#eActive").checked
+      active: $("#eActive").checked,
+      cnRate: parseRate($("#eCN").value),
+      tvRate: parseRate($("#eTV").value),
+      ronRate: parseRate($("#eRon").value)
     };
 
     if (id) {
@@ -719,15 +827,17 @@ function exportPayrollCsv() {
   csvContent += `Phụ cấp,${s.allowance}\n`;
   csvContent += `Doanh thu VS CN,${s.cn}\n`;
   csvContent += `Doanh thu VS TV,${s.tv}\n`;
-  csvContent += `Tiền % VS CN (${data.settings.cnRate}%),${s.p10}\n`;
-  csvContent += `Tiền % VS TV (${data.settings.tvRate}%),${s.p7}\n`;
+  csvContent += `Doanh thu Ron keo,${s.ron}\n`;
+  csvContent += `Tiền % VS CN,${s.pCN}\n`;
+  csvContent += `Tiền % VS TV,${s.pTV}\n`;
+  csvContent += `Tiền % Ron keo,${s.pRon}\n`;
   csvContent += `Tổng tiền %,${s.pct}\n`;
   csvContent += `TỔNG LƯƠNG THỰC LĨNH,${s.total}\n\n`;
 
   csvContent += `CHI TIẾT HẰNG NGÀY\n`;
-  csvContent += `Ngày,Trạng thái,Doanh thu VS CN,Doanh thu VS TV,Tiền % trong ngày\n`;
+  csvContent += `Ngày,Trạng thái,Doanh thu VS CN,Doanh thu VS TV,Doanh thu Ron keo,Tiền % trong ngày\n`;
   s.r.forEach(a => {
-    csvContent += `"${fmt(a.date)}","${a.work ? "Đi làm" : "Nghỉ"}",${a.cn || 0},${a.tv || 0},${a.cnPct + a.tvPct}\n`;
+    csvContent += `"${fmt(a.date)}","${a.work ? "Đi làm" : "Nghỉ"}",${a.cn || 0},${a.tv || 0},${a.ron || 0},${a.totalPct}\n`;
   });
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -762,7 +872,8 @@ function generateSampleData() {
           employeeId: emp1Id,
           work: true,
           cn: i % 2 === 0 ? 1500000 : 0,
-          tv: i % 3 === 0 ? 800000 : 0
+          tv: i % 3 === 0 ? 800000 : 0,
+          ron: i % 4 === 0 ? 500000 : 0
         });
       }
 
@@ -773,7 +884,8 @@ function generateSampleData() {
           employeeId: emp2.id,
           work: true,
           cn: i % 3 === 0 ? 2000000 : 0,
-          tv: i % 2 === 0 ? 1000000 : 0
+          tv: i % 2 === 0 ? 1000000 : 0,
+          ron: i % 2 === 0 ? 600000 : 0
         });
       }
     }
@@ -861,7 +973,8 @@ document.addEventListener("DOMContentLoaded", () => {
         standardDays: +$("#standardDays").value || 26,
         allowance: +$("#allowance").value || 0,
         cnRate: +$("#cnRate").value || 0,
-        tvRate: +$("#tvRate").value || 0
+        tvRate: +$("#tvRate").value || 0,
+        ronRate: +$("#ronRate").value || 0
       };
       save();
       renderAll();
