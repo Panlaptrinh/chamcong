@@ -12,7 +12,9 @@ const defaults = {
     allowance: 1000000,
     cnRate: 10,
     tvRate: 7,
-    ronRate: 10
+    ronRate: 10,
+    otHourlyRate: 50000,
+    nightHourlyRate: 75000
   },
   employees: [
     { id: crypto.randomUUID(), name: "Hậu", active: true }
@@ -86,28 +88,49 @@ function getEmpRates(empId) {
   return { cnRate, tvRate, ronRate };
 }
 
+function formatDays(value) {
+  const n = Number(value) || 0;
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(1).replace(/\.0$/, "");
+}
+
+function getWorkDayValue(a) {
+  if (!a || !a.work) return 0;
+  return a.halfDay ? 0.5 : 1;
+}
+
 // --- Calculation Logic ---
 function calc(a) {
   const cnVal = +a.cn || 0;
   const tvVal = +a.tv || 0;
   const ronVal = +a.ron || 0;
+  const otHours = +a.otHours || 0;
+  const nightHours = +a.nightHours || 0;
   const rates = getEmpRates(a.employeeId);
 
   const cnPct = (cnVal * rates.cnRate) / 100;
   const tvPct = (tvVal * rates.tvRate) / 100;
   const ronPct = (ronVal * rates.ronRate) / 100;
+  const otPay = otHours * (data.settings.otHourlyRate ?? 50000);
+  const nightPay = nightHours * (data.settings.nightHourlyRate ?? 75000);
 
   return {
     ...a,
+    halfDay: !!a.halfDay,
+    otHours,
+    nightHours,
     cn: cnVal,
     tv: tvVal,
     ron: ronVal,
     cnRate: rates.cnRate,
     tvRate: rates.tvRate,
     ronRate: rates.ronRate,
+    dayValue: getWorkDayValue(a),
     cnPct,
     tvPct,
     ronPct,
+    otPay,
+    nightPay,
     totalPct: cnPct + tvPct + ronPct
   };
 }
@@ -129,13 +152,17 @@ function rows(month, emp = "", search = "") {
 
 function salary(month, emp = "") {
   const r = rows(month, emp);
-  const days = r.filter(x => x.work).length;
+  const days = r.reduce((sum, x) => sum + x.dayValue, 0);
   const cn = r.reduce((s, x) => s + (+x.cn || 0), 0);
   const tv = r.reduce((s, x) => s + (+x.tv || 0), 0);
   const ron = r.reduce((s, x) => s + (+x.ron || 0), 0);
   const pCN = r.reduce((s, x) => s + x.cnPct, 0);
   const pTV = r.reduce((s, x) => s + x.tvPct, 0);
   const pRon = r.reduce((s, x) => s + x.ronPct, 0);
+  const otHours = r.reduce((s, x) => s + (+x.otHours || 0), 0);
+  const nightHours = r.reduce((s, x) => s + (+x.nightHours || 0), 0);
+  const otPay = r.reduce((s, x) => s + x.otPay, 0);
+  const nightPay = r.reduce((s, x) => s + x.nightPay, 0);
   
   const stdDays = data.settings.standardDays || 26;
   const db = (data.settings.baseSalary || 0) / stdDays;
@@ -144,9 +171,9 @@ function salary(month, emp = "") {
   const base = days * db;
   const allowance = days * da;
   const pct = pCN + pTV + pRon;
-  const total = base + allowance + pct;
+  const total = base + allowance + pct + otPay + nightPay;
 
-  return { r, days, cn, tv, ron, pCN, pTV, pRon, pct, base, allowance, total };
+  return { r, days, cn, tv, ron, pCN, pTV, pRon, otHours, nightHours, otPay, nightPay, pct, base, allowance, total };
 }
 
 // --- Theme Management ---
@@ -195,7 +222,7 @@ function renderAll() {
   const s = salary(m);
 
   if ($("#monthLabel")) $("#monthLabel").textContent = `Tháng ${m.slice(5, 7)} / ${m.slice(0, 4)}`;
-  if ($("#statDays")) $("#statDays").textContent = s.days;
+  if ($("#statDays")) $("#statDays").textContent = formatDays(s.days);
   if ($("#statCN")) $("#statCN").textContent = money(s.cn);
   if ($("#statTV")) $("#statTV").textContent = money(s.tv);
   if ($("#statRon")) $("#statRon").textContent = money(s.ron);
@@ -271,7 +298,7 @@ function renderAttendance() {
   if (r.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="12" class="empty-state">
+        <td colspan="15" class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
           <div>Chưa có dữ liệu chấm công cho tháng này.</div>
           <button class="primary" style="margin-top:12px;" onclick="editAttendance()">＋ Thêm lượt chấm công</button>
@@ -288,20 +315,26 @@ function renderAttendance() {
         <td><span class="badge badge-muted">${dayOfWeek}</span></td>
         <td><strong>${esc(employeeName(a.employeeId))}</strong></td>
         <td>
-          <label class="custom-checkbox">
-            <input type="checkbox" ${a.work ? "checked" : ""} onchange="toggleWork('${a.id}', this.checked)">
-            <span class="checkmark">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </span>
-          </label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <label class="custom-checkbox">
+              <input type="checkbox" ${a.work ? "checked" : ""} onchange="toggleWork('${a.id}', this.checked)">
+              <span class="checkmark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </span>
+            </label>
+            ${a.work && a.halfDay ? '<span class="badge badge-warning">0.5 ngày</span>' : ""}
+          </div>
         </td>
         <td>${money(a.cn)}</td>
         <td>${money(a.tv)}</td>
         <td>${money(a.ron)}</td>
+        <td>${a.otHours || 0}</td>
+        <td>${a.nightHours || 0}</td>
         <td><span class="badge badge-warning" title="Tỷ lệ % CN: ${a.cnRate}%">+${money(a.cnPct)}</span></td>
         <td><span class="badge badge-success" title="Tỷ lệ % TV: ${a.tvRate}%">+${money(a.tvPct)}</span></td>
         <td><span class="badge badge-purple" title="Tỷ lệ % Ron: ${a.ronRate}%">+${money(a.ronPct)}</span></td>
         <td><strong style="color:var(--primary);">${money(a.totalPct)}</strong></td>
+        <td>${money(a.otPay + a.nightPay)}</td>
         <td style="text-align:right;">
           <div class="action-btns" style="justify-content:flex-end;">
             <button class="table-icon-btn" onclick="editAttendance('${a.id}')" title="Sửa">
@@ -324,19 +357,23 @@ function renderPayroll() {
   const summary = $("#payrollSummary");
   if (summary) {
     summary.innerHTML = [
-      ["Số ngày công làm", s.days + " ngày"],
+      ["Số ngày công làm", formatDays(s.days) + " ngày"],
       ["Lương ngày công", money(s.base)],
       ["Phụ cấp ngày công", money(s.allowance)],
       ["Doanh thu VS CN", money(s.cn)],
       ["Doanh thu VS TV", money(s.tv)],
       ["Doanh thu Ron Keo", money(s.ron)],
+      ["Giờ làm thêm", s.otHours + " giờ"],
+      ["Giờ làm đêm", s.nightHours + " giờ"],
       [`Tiền % VS CN`, money(s.pCN)],
       [`Tiền % VS TV`, money(s.pTV)],
       [`Tiền % Ron Keo`, money(s.pRon)],
+      ["Tiền làm thêm", money(s.otPay)],
+      ["Tiền làm đêm", money(s.nightPay)],
       ["Tổng hoa hồng %", money(s.pct)],
       ["TỔNG LƯƠNG NHẬN", money(s.total)]
-    ].map((x, i) => `
-      <div class="pay-card ${i === 10 ? "total" : ""}">
+    ].map((x, i, arr) => `
+      <div class="pay-card ${i === arr.length - 1 ? "total" : ""}">
         <span>${x[0]}</span>
         <strong>${x[1]}</strong>
       </div>
@@ -356,13 +393,15 @@ function renderPayroll() {
       <td><strong>${fmt(a.date)}</strong> (${weekdays[new Date(a.date + "T00:00:00").getDay()]})</td>
       <td>
         ${a.work 
-          ? `<span class="badge badge-success">Đi làm</span>` 
+          ? (a.halfDay ? `<span class="badge badge-warning">Nửa ngày</span>` : `<span class="badge badge-success">Đi làm</span>`) 
           : `<span class="badge badge-muted">Nghỉ</span>`}
       </td>
       <td>${money(a.cn)}</td>
       <td>${money(a.tv)}</td>
       <td>${money(a.ron)}</td>
-      <td><strong>${money(a.totalPct)}</strong></td>
+      <td>${a.otHours || 0}</td>
+      <td>${a.nightHours || 0}</td>
+      <td><strong>${money(a.totalPct + a.otPay + a.nightPay)}</strong></td>
     </tr>
   `).join("");
 }
@@ -377,7 +416,9 @@ function renderEmployees() {
   }
 
   list.innerHTML = data.employees.map(e => {
-    const totalDaysWorked = data.attendance.filter(a => a.employeeId === e.id && a.work).length;
+    const totalDaysWorked = data.attendance
+      .filter(a => a.employeeId === e.id && a.work)
+      .reduce((sum, a) => sum + getWorkDayValue(a), 0);
     const rates = getEmpRates(e.id);
     const hasCustom = (e.cnRate !== null && e.cnRate !== undefined && e.cnRate !== "") ||
                       (e.tvRate !== null && e.tvRate !== undefined && e.tvRate !== "") ||
@@ -393,7 +434,7 @@ function renderEmployees() {
               ${e.active 
                 ? `<span class="badge badge-success">Đang làm</span>` 
                 : `<span class="badge badge-muted">Đã nghỉ</span>`}
-              <span class="badge badge-info">${totalDaysWorked} ngày công</span>
+              <span class="badge badge-info">${formatDays(totalDaysWorked)} ngày công</span>
               ${hasCustom 
                 ? `<span class="badge badge-warning">Setup % riêng</span>` 
                 : `<span class="badge badge-muted">% Mặc định</span>`}
@@ -426,6 +467,8 @@ function renderSettings() {
   if ($("#cnRate")) $("#cnRate").value = s.cnRate;
   if ($("#tvRate")) $("#tvRate").value = s.tvRate;
   if ($("#ronRate")) $("#ronRate").value = s.ronRate ?? 10;
+  if ($("#otHourlyRate")) $("#otHourlyRate").value = s.otHourlyRate ?? 50000;
+  if ($("#nightHourlyRate")) $("#nightHourlyRate").value = s.nightHourlyRate ?? 75000;
 }
 
 // --- Modals & Forms ---
@@ -475,6 +518,16 @@ function attendanceForm(id = "") {
         <span style="font-weight:600;font-size:14px;">Tính ngày công (Đi làm)</span>
       </div>
 
+      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;">
+        <label class="custom-checkbox">
+          <input id="fHalfDay" type="checkbox" ${a.halfDay ? "checked" : ""} ${a.work ? "" : "disabled"}>
+          <span class="checkmark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+        </label>
+        <span style="font-weight:600;font-size:14px;">Làm nửa ngày (0.5 ngày)</span>
+      </div>
+
       <div class="form-group">
         <label for="fCN">Doanh thu VS công nghiệp (VNĐ)</label>
         <input id="fCN" type="number" min="0" step="1000" value="${a.cn || 0}" placeholder="0">
@@ -488,6 +541,16 @@ function attendanceForm(id = "") {
       <div class="form-group">
         <label for="fRon">Doanh thu Ron keo (VNĐ)</label>
         <input id="fRon" type="number" min="0" step="1000" value="${a.ron || 0}" placeholder="0">
+      </div>
+
+      <div class="form-group">
+        <label for="fOT">Làm thêm giờ (giờ)</label>
+        <input id="fOT" type="number" min="0" step="0.5" value="${a.otHours || 0}" placeholder="0">
+      </div>
+
+      <div class="form-group">
+        <label for="fNight">Làm thêm ban đêm (giờ)</label>
+        <input id="fNight" type="number" min="0" step="0.5" value="${a.nightHours || 0}" placeholder="0">
       </div>
 
       <!-- Real-time Live Calculation Box -->
@@ -543,15 +606,29 @@ function attendanceForm(id = "") {
   $("#fCN").oninput = updatePreview;
   $("#fTV").oninput = updatePreview;
   $("#fRon").oninput = updatePreview;
+  const syncHalfDayState = () => {
+    const workChecked = $("#fWork").checked;
+    const halfDayInput = $("#fHalfDay");
+    if (halfDayInput) {
+      halfDayInput.disabled = !workChecked;
+      if (!workChecked) halfDayInput.checked = false;
+    }
+  };
+  $("#fWork").onchange = syncHalfDayState;
+  syncHalfDayState();
   updatePreview();
 
   $("#attForm").onsubmit = e => {
     e.preventDefault();
+    const workChecked = $("#fWork").checked;
     const o = {
       id: id || crypto.randomUUID(),
       date: $("#fDate").value,
       employeeId: $("#fEmp").value,
-      work: $("#fWork").checked,
+      work: workChecked,
+      halfDay: workChecked && $("#fHalfDay").checked,
+      otHours: +$("#fOT").value || 0,
+      nightHours: +$("#fNight").value || 0,
       cn: +$("#fCN").value || 0,
       tv: +$("#fTV").value || 0,
       ron: +$("#fRon").value || 0
@@ -602,6 +679,26 @@ function batchAttendanceForm() {
         `).join("")}
       </div>
 
+      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;">
+        <label class="custom-checkbox">
+          <input id="bHalfDay" type="checkbox">
+          <span class="checkmark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+        </label>
+        <span style="font-weight:600;font-size:14px;">Chấm công làm nửa ngày (0.5 ngày)</span>
+      </div>
+
+      <div class="form-group">
+        <label for="bOT">Làm thêm giờ mặc định cho mỗi người (giờ)</label>
+        <input id="bOT" type="number" min="0" step="0.5" value="0" placeholder="0">
+      </div>
+
+      <div class="form-group">
+        <label for="bNight">Làm thêm ban đêm mặc định cho mỗi người (giờ)</label>
+        <input id="bNight" type="number" min="0" step="0.5" value="0" placeholder="0">
+      </div>
+
       <div class="form-group">
         <label for="bCN">Doanh thu VS CN mặc định cho mỗi người (VNĐ)</label>
         <input id="bCN" type="number" min="0" step="1000" value="0" placeholder="0">
@@ -628,6 +725,9 @@ function batchAttendanceForm() {
     e.preventDefault();
     const dateVal = $("#bDate").value;
     const selectedEmpIds = $$(".batch-emp-cb:checked").map(cb => cb.value);
+    const halfDay = $("#bHalfDay").checked;
+    const otVal = +$("#bOT").value || 0;
+    const nightVal = +$("#bNight").value || 0;
     const cnVal = +$("#bCN").value || 0;
     const tvVal = +$("#bTV").value || 0;
     const ronVal = +$("#bRon").value || 0;
@@ -645,6 +745,9 @@ function batchAttendanceForm() {
         date: dateVal,
         employeeId: empId,
         work: true,
+        halfDay,
+        otHours: otVal,
+        nightHours: nightVal,
         cn: cnVal,
         tv: tvVal,
         ron: ronVal
@@ -671,6 +774,7 @@ window.toggleWork = (id, val) => {
   const a = data.attendance.find(x => x.id === id);
   if (a) {
     a.work = val;
+    if (!val) a.halfDay = false;
     save();
     renderAll();
     toast(val ? "Đánh dấu đi làm" : "Đánh dấu nghỉ");
@@ -801,6 +905,8 @@ function importData(file) {
       if (!parsed.settings || !Array.isArray(parsed.employees) || !Array.isArray(parsed.attendance)) {
         throw new Error("Invalid structure");
       }
+      parsed.settings.otHourlyRate ??= 50000;
+      parsed.settings.nightHourlyRate ??= 75000;
       data = parsed;
       save();
       renderAll();
@@ -828,6 +934,10 @@ function exportPayrollCsv() {
   csvContent += `Doanh thu VS CN,${s.cn}\n`;
   csvContent += `Doanh thu VS TV,${s.tv}\n`;
   csvContent += `Doanh thu Ron keo,${s.ron}\n`;
+  csvContent += `Giờ làm thêm,${s.otHours}\n`;
+  csvContent += `Giờ làm đêm,${s.nightHours}\n`;
+  csvContent += `Tiền làm thêm,${s.otPay}\n`;
+  csvContent += `Tiền làm đêm,${s.nightPay}\n`;
   csvContent += `Tiền % VS CN,${s.pCN}\n`;
   csvContent += `Tiền % VS TV,${s.pTV}\n`;
   csvContent += `Tiền % Ron keo,${s.pRon}\n`;
@@ -835,9 +945,9 @@ function exportPayrollCsv() {
   csvContent += `TỔNG LƯƠNG THỰC LĨNH,${s.total}\n\n`;
 
   csvContent += `CHI TIẾT HẰNG NGÀY\n`;
-  csvContent += `Ngày,Trạng thái,Doanh thu VS CN,Doanh thu VS TV,Doanh thu Ron keo,Tiền % trong ngày\n`;
+  csvContent += `Ngày,Trạng thái,Doanh thu VS CN,Doanh thu VS TV,Doanh thu Ron keo,Giờ OT,Giờ đêm,Tổng tiền\n`;
   s.r.forEach(a => {
-    csvContent += `"${fmt(a.date)}","${a.work ? "Đi làm" : "Nghỉ"}",${a.cn || 0},${a.tv || 0},${a.ron || 0},${a.totalPct}\n`;
+    csvContent += `"${fmt(a.date)}","${a.work ? "Đi làm" : "Nghỉ"}",${a.cn || 0},${a.tv || 0},${a.ron || 0},${a.otHours || 0},${a.nightHours || 0},${a.totalPct + a.otPay + a.nightPay}\n`;
   });
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -974,7 +1084,9 @@ document.addEventListener("DOMContentLoaded", () => {
         allowance: +$("#allowance").value || 0,
         cnRate: +$("#cnRate").value || 0,
         tvRate: +$("#tvRate").value || 0,
-        ronRate: +$("#ronRate").value || 0
+        ronRate: +$("#ronRate").value || 0,
+        otHourlyRate: +$("#otHourlyRate").value || 0,
+        nightHourlyRate: +$("#nightHourlyRate").value || 0
       };
       save();
       renderAll();

@@ -258,10 +258,13 @@
                   <th>Doanh thu VS CN</th>
                   <th>Doanh thu VS TV</th>
                   <th>Doanh thu Ron Keo</th>
+                  <th>OT (giờ)</th>
+                  <th>Đêm (giờ)</th>
                   <th>Tiền % CN</th>
                   <th>Tiền % TV</th>
                   <th>Tiền % Ron</th>
                   <th>Tổng %</th>
+                  <th>OT + Đêm</th>
                   <th style="text-align:right;">Thao tác</th>
                 </tr>
               </thead>
@@ -310,7 +313,9 @@
                   <th>Doanh thu VS CN</th>
                   <th>Doanh thu VS TV</th>
                   <th>Doanh thu Ron Keo</th>
-                  <th>Tổng tiền %</th>
+                  <th>OT (giờ)</th>
+                  <th>Đêm (giờ)</th>
+                  <th>Tổng tiền</th>
                 </tr>
               </thead>
               <tbody id="payrollBody"></tbody>
@@ -383,6 +388,18 @@
               <label for="ronRate">Tỷ lệ Ron keo mặc định (%)</label>
               <input id="ronRate" type="number" min="0" max="100" step="0.1" placeholder="10">
               <span class="form-help">Tỷ lệ hưởng trên doanh thu Ron keo mặc định</span>
+            </div>
+
+            <div class="form-group">
+              <label for="otHourlyRate">Tiền làm thêm giờ / giờ (VNĐ)</label>
+              <input id="otHourlyRate" type="number" min="0" step="5000" placeholder="50000">
+              <span class="form-help">Đơn giá tính cho giờ OT</span>
+            </div>
+
+            <div class="form-group">
+              <label for="nightHourlyRate">Tiền làm thêm ban đêm / giờ (VNĐ)</label>
+              <input id="nightHourlyRate" type="number" min="0" step="5000" placeholder="75000">
+              <span class="form-help">Đơn giá tính cho giờ làm đêm</span>
             </div>
           </div>
 
